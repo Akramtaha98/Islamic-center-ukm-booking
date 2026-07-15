@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ms" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pusat Islam · Tempahan Bilik</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/index.global.min.css" rel="stylesheet" onerror="this.remove()">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/index.global.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/locales-all.global.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-row">
+      <div class="brand">
+        <img class="brand-icon" src="ukm-crest.png" alt="UKM">
+        <div class="brand-text">
+          <h1 data-i18n="appTitle">Pusat Islam</h1>
+          <p data-i18n="appSubtitleIndex">Universiti Kebangsaan Malaysia (UKM) · Sistem Tempahan Bilik</p>
+        </div>
+      </div>
+      <div class="top-controls">
+        <div class="lang-switcher" id="langSwitcher"></div>
+        <button class="theme-toggle" id="themeToggle" data-i18n-title="darkModeToggle" title="Dark Mode">🌙</button>
+      </div>
+    </div>
+    <div class="meta-strip">
+      <div>📅 <b id="hijriDate">...</b></div>
+      <div><span data-i18n="nextPrayerLabel">Solat seterusnya</span>: <b id="nextPrayer">...</b></div>
+      <div><a href="admin.html" data-i18n="adminLoginLink" style="color:#fff; text-decoration:none;">🔑 Log Masuk Admin</a></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="card">
+    <div class="legend">
+      <span><span class="dot" style="background:#fff;border:1px solid #ccc;"></span> <span data-i18n="legendAvailable">Tersedia</span></span>
+      <span><span class="dot" style="background:#b8902f;"></span> <span data-i18n="legendPending">Menunggu</span></span>
+      <span><span class="dot" style="background:#0b6e4f;"></span> <span data-i18n="legendApproved">Diluluskan</span></span>
+      <span><span class="dot" style="background:#c7c7c7;"></span> <span data-i18n="legendPrayer">Waktu Solat (Ditutup)</span></span>
+    </div>
+    <div class="room-filters" id="roomFilters"></div>
+    <div id="calendar"></div>
+  </div>
+</div>
+
+<button class="fab" id="openBookingBtn" title="+">＋</button>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <button class="btn-close" id="closeModalBtn">×</button>
+    <h2 data-i18n="newBookingTitle">Mohon Tempahan Bilik Baharu</h2>
+    <form id="bookingForm">
+      <div class="field">
+        <label data-i18n="requesterNameLabel">Nama Pemohon</label>
+        <input type="text" id="requesterName" required data-i18n-placeholder="requesterNamePlaceholder">
+      </div>
+      <div class="field">
+        <label data-i18n="requesterEmailLabel">Emel (pilihan)</label>
+        <input type="email" id="requesterEmail" placeholder="name@example.com">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label data-i18n="roomSelectLabel">Bilik</label>
+          <select id="roomSelect" required></select>
+        </div>
+        <div class="field">
+          <label data-i18n="activityTypeLabel">Jenis Aktiviti</label>
+          <select id="activityType" required></select>
+        </div>
+      </div>
+      <div class="field">
+        <label data-i18n="attendeesLabel">Jumlah Kehadiran Dijangka</label>
+        <input type="number" id="attendees" min="1" required data-i18n-placeholder="attendeesPlaceholder">
+      </div>
+      <div class="field">
+        <label data-i18n="dateLabel">Tarikh</label>
+        <input type="text" id="bookingDate" required readonly placeholder="YYYY-MM-DD">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label data-i18n="startTimeLabel">Masa Mula</label>
+          <input type="text" id="startTime" required readonly placeholder="--:--">
+        </div>
+        <div class="field">
+          <label data-i18n="endTimeLabel">Masa Tamat</label>
+          <input type="text" id="endTime" required readonly placeholder="--:--">
+        </div>
+      </div>
+      <p class="hint" data-i18n="bookingHint">⚠️ Sila elakkan waktu solat.</p>
+      <button type="submit" class="btn btn-primary" data-i18n="submitBtn">Hantar Permohonan</button>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="detailsModalOverlay">
+  <div class="modal" style="max-width:420px;">
+    <button class="btn-close" id="closeDetailsBtn">×</button>
+    <h2 data-i18n="detailsTitle">Butiran Tempahan</h2>
+    <div id="detailsBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
+<script src="translations.js"></script>
+<script src="prayerapi.js"></script>
+<script>
+let prayerTimes = [];
+let rooms = [];
+let currentRoomFilter = "all";
+let calendar;
+let fpDate, fpStart, fpEnd;
+
+function showToast(msg, isError = false) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "toast show" + (isError ? " error" : "");
+  setTimeout(() => el.classList.remove("show"), 4200);
+}
+
+function roomLabel(r) {
+  return `${t("room")} ${r.id} (${t("capacity")} ${r.capacity})`;
+}
+function roomChipLabel(r) {
+  return `${t("room")} ${r.id}`;
+}
+
+async function loadRooms() {
+  const { data, error } = await supabaseClient.from("rooms").select("*").order("id");
+  if (error) { console.error(error); return; }
+  rooms = data;
+  renderRoomUI();
+}
+
+function renderRoomUI() {
+  const sel = document.getElementById("roomSelect");
+  const prevVal = sel.value;
+  sel.innerHTML = rooms.map(r => `<option value="${r.id}">${roomLabel(r)}</option>`).join("");
+  if (prevVal) sel.value = prevVal;
+
+  const filterWrap = document.getElementById("roomFilters");
+  filterWrap.innerHTML = `<button class="room-chip ${currentRoomFilter === "all" ? "active" : ""}" data-room="all">${t("allRooms")}</button>` +
+    rooms.map(r => `<button class="room-chip ${currentRoomFilter == r.id ? "active" : ""}" data-room="${r.id}">${roomChipLabel(r)}</button>`).join("");
+  filterWrap.querySelectorAll(".room-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      filterWrap.querySelectorAll(".room-chip").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentRoomFilter = btn.dataset.room;
+      calendar.refetchEvents();
+    });
+  });
+}
+
+function renderActivityTypes() {
+  const sel = document.getElementById("activityType");
+  const prevVal = sel.value;
+  sel.innerHTML = ACTIVITY_TYPE_CODES.map(code => `<option value="${code}">${activityLabel(code)}</option>`).join("");
+  if (prevVal) sel.value = prevVal;
+}
+
+async function loadPrayerTimes() {
+  const { data, error } = await supabaseClient.from("prayer_times").select("*");
+  if (error) { console.error(error); return; }
+  prayerTimes = data;
+  updateNextPrayer();
+}
+
+async function updateNextPrayer() {
+  document.getElementById("hijriDate").textContent = getHijriDate();
+  const next = await getNextPrayerToday(prayerTimes);
+  if (!next) return;
+  document.getElementById("nextPrayer").textContent = `${t("prayer_" + next.name)} · ${next.time}`;
+}
+
+async function fetchBookingEvents(info, successCallback, failureCallback) {
+  let query = supabaseClient.from("bookings").select("*, rooms(id)")
+    .in("status", ["pending","approved"])
+    .gte("booking_date", info.startStr.slice(0,10))
+    .lte("booking_date", info.endStr.slice(0,10));
+  if (currentRoomFilter !== "all") query = query.eq("room_id", currentRoomFilter);
+
+  const { data, error } = await query;
+  if (error) { failureCallback(error); return; }
+
+  const events = data.map(b => ({
+    id: b.id,
+    title: `${activityLabel(b.activity_type)} · ${b.requester_name} (${t("room")} ${b.room_id})`,
+    start: `${b.booking_date}T${b.start_time}`,
+    end: `${b.booking_date}T${b.end_time}`,
+    backgroundColor: STATUS_COLORS[b.status],
+    borderColor: STATUS_COLORS[b.status],
+    extendedProps: {
+      activity: activityLabel(b.activity_type),
+      room: `${t("room")} ${b.room_id}`,
+      requester: b.requester_name,
+      date: b.booking_date,
+      start: b.start_time.slice(0,5),
+      end: b.end_time.slice(0,5),
+      attendees: b.expected_attendees,
+      status: b.status
+    }
+  }));
+
+  const prayerEvents = await buildAllPrayerBackgroundEvents(info.startStr, info.endStr, prayerTimes);
+  successCallback([...events, ...prayerEvents]);
+}
+
+function statusPillHtml(status) {
+  return `<span class="status-pill" style="background:${STATUS_COLORS[status]}">${statusLabel(status)}</span>`;
+}
+
+function openDetailsModal(props) {
+  const rows = [
+    [t("activityTypeLabel"), props.activity],
+    [t("room"), props.room],
+    [t("requesterFieldLabel"), props.requester],
+    [t("dateLabel"), props.date],
+    [t("timeFieldLabel"), `${props.start} - ${props.end}`],
+    [t("attendeesLabel"), `${props.attendees || "-"} ${t("attendeesShort")}`],
+    [t("statusFieldLabel"), statusPillHtml(props.status)]
+  ];
+  document.getElementById("detailsBody").innerHTML = rows.map(([label, value]) =>
+    `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+  ).join("");
+  document.getElementById("detailsModalOverlay").classList.add("open");
+}
+
+document.getElementById("closeDetailsBtn").addEventListener("click", () => document.getElementById("detailsModalOverlay").classList.remove("open"));
+document.getElementById("detailsModalOverlay").addEventListener("click", (e) => { if (e.target.id === "detailsModalOverlay") e.target.classList.remove("open"); });
+
+function isMobileScreen() {
+  return window.innerWidth < 640;
+}
+
+function initCalendar() {
+  const el = document.getElementById("calendar");
+  if (calendar) { calendar.destroy(); }
+  const mobile = isMobileScreen();
+  calendar = new FullCalendar.Calendar(el, {
+    initialView: mobile ? "listWeek" : "timeGridWeek",
+    locale: getLang(),
+    direction: RTL_LANGS.includes(getLang()) ? "rtl" : "ltr",
+    height: mobile ? "auto" : 680,
+    slotMinTime: "07:00:00",
+    slotMaxTime: "23:30:00",
+    headerToolbar: mobile
+      ? { left: "prev,next today", center: "title", right: "listWeek,timeGridDay,timeGridWeek" }
+      : { left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,dayGridMonth,listWeek" },
+    events: fetchBookingEvents,
+    eventDidMount: (info) => { info.el.title = info.event.title; },
+    eventClick: (info) => {
+      if (!info.event.extendedProps || info.event.extendedProps.status === undefined) return;
+      openDetailsModal(info.event.extendedProps);
+    },
+    dateClick: (info) => {
+      if (calendar.view.type === "dayGridMonth") {
+        calendar.changeView("timeGridDay", info.dateStr);
+      }
+    }
+  });
+  calendar.render();
+}
+
+function debounce(fn, wait) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); };
+}
+
+let _lastIsMobile = isMobileScreen();
+window.addEventListener("resize", debounce(() => {
+  const nowMobile = isMobileScreen();
+  if (nowMobile !== _lastIsMobile) {
+    _lastIsMobile = nowMobile;
+    if (calendar) initCalendar();
+  }
+}, 300));
+
+function refreshAllUI() {
+  applyDirection();
+  applyTranslations();
+  document.getElementById("hijriDate").textContent = getHijriDate();
+  renderRoomUI();
+  renderActivityTypes();
+  updateNextPrayer();
+  initCalendar();
+}
+
+// Modal
+const overlay = document.getElementById("modalOverlay");
+document.getElementById("openBookingBtn").addEventListener("click", () => {
+  overlay.classList.add("open");
+});
+document.getElementById("closeModalBtn").addEventListener("click", () => overlay.classList.remove("open"));
+overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.classList.remove("open"); });
+
+document.getElementById("bookingForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const date = document.getElementById("bookingDate").value;
+  const start = document.getElementById("startTime").value;
+  const end = document.getElementById("endTime").value;
+
+  if (!date || !start || !end) { showToast(t("toastStartBeforeEnd"), true); return; }
+  if (start >= end) { showToast(t("toastStartBeforeEnd"), true); return; }
+  if (start < WORK_START || end > WORK_END) { showToast(t("toastOutsideHours", { start: WORK_START, end: WORK_END }), true); return; }
+
+  const prayerHitCode = await checkPrayerConflict(date, start, end, prayerTimes);
+  if (prayerHitCode) { showToast(t("toastPrayerConflict", { prayer: t("prayer_" + prayerHitCode) }), true); return; }
+
+  const payload = {
+    room_id: Number(document.getElementById("roomSelect").value),
+    requester_name: document.getElementById("requesterName").value.trim(),
+    requester_email: document.getElementById("requesterEmail").value.trim() || null,
+    activity_type: document.getElementById("activityType").value,
+    expected_attendees: Number(document.getElementById("attendees").value),
+    booking_date: date,
+    start_time: start,
+    end_time: end,
+    status: "pending"
+  };
+
+  const { error } = await supabaseClient.from("bookings").insert(payload);
+  if (error) {
+    const msg = error.message.includes("متعارض") ? t("toastConflictDb") : t("toastSubmitError", { msg: error.message });
+    showToast(msg, true);
+    return;
+  }
+  showToast(t("toastSubmitSuccess"));
+  e.target.reset();
+  if (fpDate) fpDate.clear();
+  if (fpStart) fpStart.clear();
+  if (fpEnd) fpEnd.clear();
+  overlay.classList.remove("open");
+  calendar.refetchEvents();
+});
+
+function initPickers() {
+  const dateEl = document.getElementById("bookingDate");
+  const startEl = document.getElementById("startTime");
+  const endEl = document.getElementById("endTime");
+
+  if (isMobileScreen()) {
+    // على الجوال: نستخدم منتقي الوقت/التاريخ الأصلي في الهاتف (عجلة/ساعة حقيقية)
+    // بدلاً من flatpickr، لأن بعض المتصفحات على الجوال تفتح لوحة المفاتيح بدلاً من المنتقي
+    dateEl.type = "date";
+    dateEl.removeAttribute("readonly");
+    dateEl.min = new Date().toISOString().slice(0, 10);
+
+    startEl.type = "time";
+    startEl.removeAttribute("readonly");
+    startEl.min = WORK_START;
+    startEl.max = WORK_END;
+    startEl.step = 300;
+
+    endEl.type = "time";
+    endEl.removeAttribute("readonly");
+    endEl.min = WORK_START;
+    endEl.max = WORK_END;
+    endEl.step = 300;
+
+    fpDate = fpStart = fpEnd = null;
+  } else {
+    fpDate = flatpickr(dateEl, {
+      dateFormat: "Y-m-d",
+      minDate: "today",
+      disableMobile: true
+    });
+    fpStart = flatpickr(startEl, {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      minTime: WORK_START,
+      maxTime: WORK_END,
+      minuteIncrement: 5,
+      disableMobile: true
+    });
+    fpEnd = flatpickr(endEl, {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      minTime: WORK_START,
+      maxTime: WORK_END,
+      minuteIncrement: 5,
+      disableMobile: true
+    });
+  }
+}
+
+(async function init() {
+  applyDirection();
+  applyTheme();
+  applyTranslations();
+  buildLangSwitcher(document.getElementById("langSwitcher"), refreshAllUI);
+  buildThemeToggle(document.getElementById("themeToggle"));
+  initPickers();
+
+  await Promise.all([loadRooms(), loadPrayerTimes()]);
+  renderActivityTypes();
+  initCalendar();
+  setInterval(updateNextPrayer, 60000);
+})();
+</script>
+</body>
+</html>

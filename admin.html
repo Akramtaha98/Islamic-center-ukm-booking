@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ms" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Islamic Center · Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/index.global.min.css" rel="stylesheet" onerror="this.remove()">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/index.global.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/locales-all.global.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-row">
+      <div class="brand">
+        <img class="brand-icon" src="ukm-crest.png" alt="UKM">
+        <div class="brand-text">
+          <h1 data-i18n="appTitleAdmin">Panel Pentadbiran Pusat Islam</h1>
+          <p id="adminEmailLabel" data-i18n="adminLoginTitle">Log Masuk Admin</p>
+        </div>
+      </div>
+      <div class="top-controls">
+        <div class="lang-switcher" id="langSwitcher"></div>
+        <button class="theme-toggle" id="themeToggle" data-i18n-title="darkModeToggle" title="Dark Mode">🌙</button>
+      </div>
+    </div>
+    <div class="meta-strip">
+      <div><a href="index.html" data-i18n="homeLink" style="color:#fff; text-decoration:none;">🏠 Laman Utama</a></div>
+      <div id="logoutWrap" style="display:none;"><a href="#" id="logoutBtn" data-i18n="logoutLink" style="color:#fff; text-decoration:none;">🚪 Log Keluar</a></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Login -->
+  <div class="login-wrap card" id="loginCard">
+    <h2 style="margin-top:0; color: var(--emerald-dark);" data-i18n="adminLoginTitle">Log Masuk Admin</h2>
+    <p class="hint" data-i18n="adminLoginHint">Panel ini khusus untuk pentadbiran Pusat Islam sahaja.</p>
+    <div class="field">
+      <label data-i18n="emailLabel">Emel</label>
+      <input type="email" id="loginEmail" placeholder="admin@example.com">
+    </div>
+    <div class="field">
+      <label data-i18n="passwordLabel">Kata Laluan</label>
+      <input type="password" id="loginPassword">
+    </div>
+    <button class="btn btn-primary" id="loginBtn" data-i18n="loginBtn">Log Masuk</button>
+    <p id="loginError" style="color:#b3413a; font-size:13.5px; margin-top:10px;"></p>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" style="display:none;">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="pending"><span data-i18n="pendingTab">Permohonan Belum Selesai</span> (<span id="pendingCount">0</span>)</button>
+      <button class="tab-btn" data-tab="calendar" data-i18n="calendarTab">Kalendar Penuh</button>
+    </div>
+
+    <div id="tabPending" class="card">
+      <div id="pendingList"></div>
+    </div>
+
+    <div id="tabCalendar" class="card" style="display:none;">
+      <div class="legend">
+        <span><span class="dot" style="background:#b8902f;"></span> <span data-i18n="legendPending">Menunggu</span></span>
+        <span><span class="dot" style="background:#0b6e4f;"></span> <span data-i18n="legendApproved">Diluluskan</span></span>
+        <span><span class="dot" style="background:#c7c7c7;"></span> <span data-i18n="legendPrayer">Waktu Solat</span></span>
+      </div>
+      <div id="calendar"></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="detailsModalOverlay">
+  <div class="modal" style="max-width:420px;">
+    <button class="btn-close" id="closeDetailsBtn">×</button>
+    <h2 data-i18n="detailsTitle">Butiran Tempahan</h2>
+    <div id="detailsBody"></div>
+    <div class="details-actions" id="detailsActions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
+<script src="translations.js"></script>
+<script src="prayerapi.js"></script>
+<script>
+let currentUser = null;
+let prayerTimes = [];
+let calendar;
+
+function showToast(msg, isError = false) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "toast show" + (isError ? " error" : "");
+  setTimeout(() => el.classList.remove("show"), 4200);
+}
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  document.getElementById("loginError").textContent = "";
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    document.getElementById("loginError").textContent = t("loginErrorWrong");
+    return;
+  }
+  await checkSession();
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async (e) => {
+  e.preventDefault();
+  await supabaseClient.auth.signOut();
+  location.reload();
+});
+
+async function checkSession() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) return;
+  const email = session.user.email;
+  const { data: adminRow } = await supabaseClient.from("admins").select("*").eq("email", email).maybeSingle();
+  if (!adminRow) {
+    document.getElementById("loginError").textContent = t("loginErrorUnauthorized");
+    await supabaseClient.auth.signOut();
+    return;
+  }
+  currentUser = { email, name: adminRow.name };
+  document.getElementById("loginCard").style.display = "none";
+  document.getElementById("dashboard").style.display = "block";
+  document.getElementById("logoutWrap").style.display = "block";
+  document.getElementById("adminEmailLabel").textContent = `${t("welcomeLabel")} ${adminRow.name || email}`;
+  await loadPrayerTimes();
+  await loadPendingRequests();
+  initCalendar();
+}
+
+async function loadPrayerTimes() {
+  const { data } = await supabaseClient.from("prayer_times").select("*");
+  prayerTimes = data || [];
+}
+
+async function loadPendingRequests() {
+  const { data, error } = await supabaseClient
+    .from("bookings")
+    .select("*, rooms(id)")
+    .eq("status", "pending")
+    .order("booking_date", { ascending: true });
+
+  const list = document.getElementById("pendingList");
+  document.getElementById("pendingCount").textContent = (data || []).length;
+
+  if (error) { list.innerHTML = `<p class="empty-state">${t("pendingLoadError")}</p>`; return; }
+  if (!data.length) { list.innerHTML = `<p class="empty-state">${t("noPending")}</p>`; return; }
+
+  list.innerHTML = data.map(b => `
+    <div class="request-item" data-id="${b.id}">
+      <div class="request-info">
+        <b>${activityLabel(b.activity_type)}</b> · ${t("room")} ${b.room_id}
+        <div class="sub">
+          👤 ${b.requester_name} ${b.requester_email ? "· " + b.requester_email : ""}<br>
+          📅 ${b.booking_date} &nbsp; ⏰ ${b.start_time.slice(0,5)} - ${b.end_time.slice(0,5)} &nbsp; 👥 ${b.expected_attendees || "-"} ${t("attendeesShort")}
+        </div>
+      </div>
+      <div class="request-actions">
+        <button class="btn btn-approve" data-action="approve" data-id="${b.id}">${t("approveBtn")}</button>
+        <button class="btn btn-reject" data-action="reject" data-id="${b.id}">${t("rejectBtn")}</button>
+      </div>
+    </div>
+  `).join("");
+
+  list.querySelectorAll("button[data-action]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      const status = action === "approve" ? "approved" : "rejected";
+      const { error } = await supabaseClient.from("bookings")
+        .update({ status, approved_by: currentUser.email })
+        .eq("id", id);
+      if (error) { showToast(t("genericError") + " " + error.message, true); return; }
+      showToast(status === "approved" ? t("approveSuccess") : t("rejectSuccess"));
+      await loadPendingRequests();
+      if (calendar) calendar.refetchEvents();
+    });
+  });
+}
+
+async function fetchAllEvents(info, successCallback, failureCallback) {
+  const { data, error } = await supabaseClient.from("bookings").select("*, rooms(id)")
+    .in("status", ["pending","approved"])
+    .gte("booking_date", info.startStr.slice(0,10))
+    .lte("booking_date", info.endStr.slice(0,10));
+  if (error) { failureCallback(error); return; }
+  const events = data.map(b => ({
+    id: b.id,
+    title: `${activityLabel(b.activity_type)} · ${b.requester_name} (${t("room")} ${b.room_id}) [${statusLabel(b.status)}]`,
+    start: `${b.booking_date}T${b.start_time}`,
+    end: `${b.booking_date}T${b.end_time}`,
+    backgroundColor: STATUS_COLORS[b.status],
+    borderColor: STATUS_COLORS[b.status],
+    extendedProps: {
+      activity: activityLabel(b.activity_type),
+      room: `${t("room")} ${b.room_id}`,
+      requester: b.requester_name,
+      email: b.requester_email,
+      date: b.booking_date,
+      start: b.start_time.slice(0,5),
+      end: b.end_time.slice(0,5),
+      attendees: b.expected_attendees,
+      status: b.status
+    }
+  }));
+  const prayerEvents = await buildAllPrayerBackgroundEvents(info.startStr, info.endStr, prayerTimes);
+  successCallback([...events, ...prayerEvents]);
+}
+
+function statusPillHtml(status) {
+  return `<span class="status-pill" style="background:${STATUS_COLORS[status]}">${statusLabel(status)}</span>`;
+}
+
+function openDetailsModal(id, props) {
+  const rows = [
+    [t("activityTypeLabel"), props.activity],
+    [t("room"), props.room],
+    [t("requesterFieldLabel"), props.requester],
+    [t("emailFieldLabel"), props.email || t("noEmailProvided")],
+    [t("dateLabel"), props.date],
+    [t("timeFieldLabel"), `${props.start} - ${props.end}`],
+    [t("attendeesLabel"), `${props.attendees || "-"} ${t("attendeesShort")}`],
+    [t("statusFieldLabel"), statusPillHtml(props.status)]
+  ];
+  document.getElementById("detailsBody").innerHTML = rows.map(([label, value]) =>
+    `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+  ).join("");
+
+  const actions = document.getElementById("detailsActions");
+  if (props.status === "pending") {
+    actions.innerHTML = `<button class="btn btn-approve" id="detailApproveBtn">${t("approveBtn")}</button><button class="btn btn-reject" id="detailRejectBtn">${t("rejectBtn")}</button>`;
+    document.getElementById("detailApproveBtn").addEventListener("click", () => updateBookingStatus(id, "approved"));
+    document.getElementById("detailRejectBtn").addEventListener("click", () => updateBookingStatus(id, "rejected"));
+  } else if (props.status === "approved") {
+    actions.innerHTML = `<button class="btn btn-reject" id="detailRejectBtn">${t("rejectBtn")}</button>`;
+    document.getElementById("detailRejectBtn").addEventListener("click", () => updateBookingStatus(id, "rejected"));
+  } else {
+    actions.innerHTML = "";
+  }
+  document.getElementById("detailsModalOverlay").classList.add("open");
+}
+
+async function updateBookingStatus(id, status) {
+  const { error } = await supabaseClient.from("bookings")
+    .update({ status, approved_by: currentUser.email })
+    .eq("id", id);
+  if (error) { showToast(error.message, true); return; }
+  showToast(status === "approved" ? t("approveSuccess") : t("rejectSuccess"));
+  document.getElementById("detailsModalOverlay").classList.remove("open");
+  calendar.refetchEvents();
+  loadPendingRequests();
+}
+
+document.getElementById("closeDetailsBtn").addEventListener("click", () => document.getElementById("detailsModalOverlay").classList.remove("open"));
+document.getElementById("detailsModalOverlay").addEventListener("click", (e) => { if (e.target.id === "detailsModalOverlay") e.target.classList.remove("open"); });
+
+function isMobileScreen() {
+  return window.innerWidth < 640;
+}
+
+function initCalendar() {
+  const el = document.getElementById("calendar");
+  if (calendar) { calendar.destroy(); }
+  const mobile = isMobileScreen();
+  calendar = new FullCalendar.Calendar(el, {
+    initialView: mobile ? "listWeek" : "timeGridWeek",
+    locale: getLang(),
+    direction: RTL_LANGS.includes(getLang()) ? "rtl" : "ltr",
+    height: mobile ? "auto" : 680,
+    slotMinTime: "07:00:00",
+    slotMaxTime: "23:30:00",
+    headerToolbar: mobile
+      ? { left: "prev,next today", center: "title", right: "listWeek,timeGridDay,timeGridWeek" }
+      : { left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,dayGridMonth,listWeek" },
+    events: fetchAllEvents,
+    eventClick: (info) => {
+      openDetailsModal(info.event.id, info.event.extendedProps);
+    },
+    dateClick: (info) => {
+      if (calendar.view.type === "dayGridMonth") {
+        calendar.changeView("timeGridDay", info.dateStr);
+      }
+    }
+  });
+  calendar.render();
+}
+
+function debounce(fn, wait) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); };
+}
+
+let _lastIsMobile = isMobileScreen();
+window.addEventListener("resize", debounce(() => {
+  const nowMobile = isMobileScreen();
+  if (nowMobile !== _lastIsMobile) {
+    _lastIsMobile = nowMobile;
+    if (calendar) initCalendar();
+  }
+}, 300));
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const tab = btn.dataset.tab;
+    document.getElementById("tabPending").style.display = tab === "pending" ? "block" : "none";
+    document.getElementById("tabCalendar").style.display = tab === "calendar" ? "block" : "none";
+    if (tab === "calendar" && calendar) calendar.updateSize();
+  });
+});
+
+function refreshAllUI() {
+  applyDirection();
+  applyTranslations();
+  if (currentUser) {
+    document.getElementById("adminEmailLabel").textContent = `${t("welcomeLabel")} ${currentUser.name || currentUser.email}`;
+    loadPendingRequests();
+    initCalendar();
+  }
+}
+
+(async function init() {
+  applyDirection();
+  applyTheme();
+  applyTranslations();
+  buildLangSwitcher(document.getElementById("langSwitcher"), refreshAllUI);
+  buildThemeToggle(document.getElementById("themeToggle"));
+  checkSession();
+})();
+</script>
+</body>
+</html>
