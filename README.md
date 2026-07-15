@@ -82,4 +82,4 @@ Admin accounts are provisioned manually in Supabase (`admins` table + correspond
 ## 📄 License
 
 This project was built for internal use by Pusat Islam, Universiti Kebangsaan Malaysia. Feel free to fork and adapt for your own institution.
-# Islamic-center-ukm-booking
+
