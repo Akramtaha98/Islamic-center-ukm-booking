@@ -69,7 +69,7 @@ Update the `SUPABASE_URL` and `SUPABASE_ANON_KEY` constants at the top of `confi
 No build tools required — it's static HTML.
 
 ```bash
-git clone https://github.com/<your-username>/islamic-center-ukm-booking.git
+git clone https://github.com/Akramtaha98/islamic-center-ukm-booking.git
 cd islamic-center-ukm-booking
 python3 -m http.server 8000
 # open http://localhost:8000
